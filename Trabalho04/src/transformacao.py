@@ -1,407 +1,224 @@
 import os
-import sys
 import argparse
 import math
 import numpy as np
 import cv2
 
 
-# test
-def R(s):
-    """Função kernel cúbica (B-spline) conforme fórmulas (5) e (6)"""
-    s = abs(s)
-    if s <= 1:
-        return (1 / 6) * ((3 * s ** 3) - (6 * s ** 2) + 4)
-    elif 1 < s < 2:
-        return (1 / 6) * ((-s ** 3) + (6 * s ** 2) - (12 * s) + 8)
-    else:
-        return 0
+def nearest_neighbor(img: np.ndarray, x: float, y: float):
+    xi = int(round(x))
+    yi = int(round(y))
+
+    h, w = img.shape
+
+    xi = max(0, min(w - 1, xi))
+    yi = max(0, min(h - 1, yi))
+
+    return float(img[yi, xi])
 
 
-def vizinho_mais_proximo(img_input, escala=None, angulo=None, largura=None, altura=None):
-    """Implementa interpolação pelo vizinho mais próximo."""
-    h_in, w_in = img_input.shape[:2]
-    canais = img_input.shape[2] if img_input.ndim == 3 else 1
+def bilinear(img: np.ndarray, x: float, y: float):
+    # Coordenadas do pixel superior-esquerdo
+    x0, y0 = math.floor(x), math.floor(y)
 
-    # Inicializar imagem de saída
-    if canais == 1:
-        img_out = np.zeros((altura, largura), dtype=img_input.dtype)
-    else:
-        img_out = np.zeros((altura, largura, canais), dtype=img_input.dtype)
+    # FraÃ§Ãµes que representam a distÃ¢ncia do pixel atual para o pixel vizinho mais prÃ³ximo.
+    dx, dy = x - x0, y - y0
 
-    # Pontos centrais
-    cx_in = w_in / 2.0
-    cy_in = h_in / 2.0
-    cx_out = largura / 2.0
-    cy_out = altura / 2.0
+    # Clamping, w-2 e h-2 assegura que sempre haverÃ¡ pixels vizinhos.
+    h, w = img.shape
+    x0_clamped = max(0, min(w - 2, x0))
+    y0_clamped = max(0, min(h - 2, y0))
 
-    # Laço sobre cada pixel de saída
-    for y_out in range(altura):
-        for x_out in range(largura):
-            if escala is not None:
-                x_in_f = x_out / escala
-                y_in_f = y_out / escala
-            else:  # rotação
-                x0 = x_out - cx_out
-                y0 = y_out - cy_out
-                cos_t = math.cos(angulo)
-                sin_t = math.sin(angulo)
-                # rotação inversa
-                x_rot = cos_t * x0 + sin_t * y0
-                y_rot = -sin_t * x0 + cos_t * y0
-                x_in_f = x_rot + cx_in
-                y_in_f = y_rot + cy_in
+    # ObtÃ©m os valores dos pixels vizinhos mais prÃ³ximos.
+    i_00 = img[y0_clamped, x0_clamped]  # Superior-esquerdo
+    i_10 = img[y0_clamped, x0_clamped + 1]  # Superior-direito
+    i_01 = img[y0_clamped + 1, x0_clamped]  # Inferior-esquerdo
+    i_11 = img[y0_clamped + 1, x0_clamped + 1]  # Inferior-direito
 
-            # Vizinho mais próximo: arredonda
-            x_near = int(round(x_in_f))
-            y_near = int(round(y_in_f))
-
-            # Se dentro dos limites
-            if 0 <= x_near < w_in and 0 <= y_near < h_in:
-                img_out[y_out, x_out] = img_input[y_near, x_near]
-            else:
-                # fora, deixa preto
-                if canais == 1:
-                    img_out[y_out, x_out] = 0
-                else:
-                    img_out[y_out, x_out, :] = 0
-
-    return img_out
+    # Calcula o valor interpolado do pixel atual.
+    i_0 = i_00 * (1 - dx) + i_10 * dx
+    i_1 = i_01 * (1 - dx) + i_11 * dx
+    return float(i_0 * (1 - dy) + i_1 * dy)
 
 
-def interp_bilinear(img_input, escala=None, angulo=None, largura=None, altura=None):
-    """Implementa interpolação bilinear."""
-    h_in, w_in = img_input.shape[:2]
-    canais = img_input.shape[2] if img_input.ndim == 3 else 1
-
-    # Inicializar imagem de saída
-    if canais == 1:
-        img_out = np.zeros((altura, largura), dtype=img_input.dtype)
-    else:
-        img_out = np.zeros((altura, largura, canais), dtype=img_input.dtype)
-
-    # Pontos centrais
-    cx_in = w_in / 2.0
-    cy_in = h_in / 2.0
-    cx_out = largura / 2.0
-    cy_out = altura / 2.0
-
-    for y_out in range(altura):
-        for x_out in range(largura):
-            # Calcular coordenadas na imagem de entrada
-            if escala is not None:
-                x_in_f = x_out / escala
-                y_in_f = y_out / escala
-            else:  # rotação
-                x0 = x_out - cx_out
-                y0 = y_out - cy_out
-                cos_t = math.cos(angulo)
-                sin_t = math.sin(angulo)
-                x_rot = cos_t * x0 + sin_t * y0
-                y_rot = -sin_t * x0 + cos_t * y0
-                x_in_f = x_rot + cx_in
-                y_in_f = y_rot + cy_in
-
-            # Índices inteiros mais próximos à "cima e à esquerda"
-            x0_int = int(math.floor(x_in_f))
-            y0_int = int(math.floor(y_in_f))
-            dx = x_in_f - x0_int
-            dy = y_in_f - y0_int
-
-            # Pegar quatro pixels vizinhos
-            if (0 <= x0_int < w_in - 1) and (0 <= y0_int < h_in - 1):
-                if canais == 1:
-                    f00 = float(img_input[y0_int, x0_int])
-                    f10 = float(img_input[y0_int, x0_int + 1])
-                    f01 = float(img_input[y0_int + 1, x0_int])
-                    f11 = float(img_input[y0_int + 1, x0_int + 1])
-                    val = (1 - dx) * (1 - dy) * f00 + dx * (1 - dy) * f10 + (1 - dx) * dy * f01 + dx * dy * f11
-                    img_out[y_out, x_out] = np.clip(val, 0, 255)
-                else:
-                    # Para cada canal
-                    for c in range(canais):
-                        f00 = float(img_input[y0_int, x0_int, c])
-                        f10 = float(img_input[y0_int, x0_int + 1, c])
-                        f01 = float(img_input[y0_int + 1, x0_int, c])
-                        f11 = float(img_input[y0_int + 1, x0_int + 1, c])
-                        val = (1 - dx) * (1 - dy) * f00 + dx * (1 - dy) * f10 + (1 - dx) * dy * f01 + dx * dy * f11
-                        img_out[y_out, x_out, c] = np.clip(val, 0, 255)
-            else:
-                # Fora dos limites
-                if canais == 1:
-                    img_out[y_out, x_out] = 0
-                else:
-                    img_out[y_out, x_out, :] = 0
-
-    return img_out
+def _p(t: float):
+    return max(t, 0.0)
 
 
-def interp_bicubica(img_input, escala=None, angulo=None, largura=None, altura=None):
-    """Implementa interpolação bicúbica."""
-    h_in, w_in = img_input.shape[:2]
-    canais = img_input.shape[2] if img_input.ndim == 3 else 1
-
-    # Inicializar imagem de saída
-    if canais == 1:
-        img_out = np.zeros((altura, largura), dtype=img_input.dtype)
-    else:
-        img_out = np.zeros((altura, largura, canais), dtype=img_input.dtype)
-
-    # Pontos centrais
-    cx_in = w_in / 2.0
-    cy_in = h_in / 2.0
-    cx_out = largura / 2.0
-    cy_out = altura / 2.0
-
-    for y_out in range(altura):
-        for x_out in range(largura):
-            # Calcular coordenadas na imagem de entrada
-            if escala is not None:
-                x_in_f = x_out / escala
-                y_in_f = y_out / escala
-            else:  # rotação
-                x0 = x_out - cx_out
-                y0 = y_out - cy_out
-                cos_t = math.cos(angulo)
-                sin_t = math.sin(angulo)
-                x_rot = cos_t * x0 + sin_t * y0
-                y_rot = -sin_t * x0 + cos_t * y0
-                x_in_f = x_rot + cx_in
-                y_in_f = y_rot + cy_in
-
-            x0_int = int(math.floor(x_in_f))
-            y0_int = int(math.floor(y_in_f))
-            dx = x_in_f - x0_int
-            dy = y_in_f - y0_int
-
-            # Verificar se temos vizinhança 4x4 disponível
-            if (1 <= x0_int < w_in - 2) and (1 <= y0_int < h_in - 2):
-                if canais == 1:
-                    val = 0.0
-                    for j in range(-1, 3):
-                        for i in range(-1, 3):
-                            pixel_val = float(img_input[y0_int + j, x0_int + i])
-                            peso = R(i - dx) * R(j - dy)
-                            val += pixel_val * peso
-                    img_out[y_out, x_out] = np.clip(val, 0, 255)
-                else:
-                    # Para cada canal
-                    for c in range(canais):
-                        val = 0.0
-                        for j in range(-1, 3):
-                            for i in range(-1, 3):
-                                pixel_val = float(img_input[y0_int + j, x0_int + i, c])
-                                peso = R(i - dx) * R(j - dy)
-                                val += pixel_val * peso
-                        img_out[y_out, x_out, c] = np.clip(val, 0, 255)
-            else:
-                # Fora dos limites para bicúbica, usar bilinear como fallback
-                if (0 <= x0_int < w_in - 1) and (0 <= y0_int < h_in - 1):
-                    if canais == 1:
-                        f00 = float(img_input[y0_int, x0_int])
-                        f10 = float(img_input[y0_int, x0_int + 1])
-                        f01 = float(img_input[y0_int + 1, x0_int])
-                        f11 = float(img_input[y0_int + 1, x0_int + 1])
-                        val = (1 - dx) * (1 - dy) * f00 + dx * (1 - dy) * f10 + (1 - dx) * dy * f01 + dx * dy * f11
-                        img_out[y_out, x_out] = np.clip(val, 0, 255)
-                    else:
-                        for c in range(canais):
-                            f00 = float(img_input[y0_int, x0_int, c])
-                            f10 = float(img_input[y0_int, x0_int + 1, c])
-                            f01 = float(img_input[y0_int + 1, x0_int, c])
-                            f11 = float(img_input[y0_int + 1, x0_int + 1, c])
-                            val = (1 - dx) * (1 - dy) * f00 + dx * (1 - dy) * f10 + (1 - dx) * dy * f01 + dx * dy * f11
-                            img_out[y_out, x_out, c] = np.clip(val, 0, 255)
-                else:
-                    if canais == 1:
-                        img_out[y_out, x_out] = 0
-                    else:
-                        img_out[y_out, x_out, :] = 0
-
-    return img_out
-
-
-def interp_lagrange(img_input, escala=None, angulo=None, largura=None, altura=None):
-    """Implementa interpolação por polinômios de Lagrange (usando 4 pontos)."""
-    h_in, w_in = img_input.shape[:2]
-    canais = img_input.shape[2] if img_input.ndim == 3 else 1
-
-    # Inicializar imagem de saída
-    if canais == 1:
-        img_out = np.zeros((altura, largura), dtype=img_input.dtype)
-    else:
-        img_out = np.zeros((altura, largura, canais), dtype=img_input.dtype)
-
-    # Pontos centrais
-    cx_in = w_in / 2.0
-    cy_in = h_in / 2.0
-    cx_out = largura / 2.0
-    cy_out = altura / 2.0
-
-    def lagrange_weights(t):
-        """Calcula os pesos de Lagrange para 4 pontos."""
-        t0, t1, t2, t3 = -1, 0, 1, 2
-        w0 = ((t - t1) * (t - t2) * (t - t3)) / ((t0 - t1) * (t0 - t2) * (t0 - t3))
-        w1 = ((t - t0) * (t - t2) * (t - t3)) / ((t1 - t0) * (t1 - t2) * (t1 - t3))
-        w2 = ((t - t0) * (t - t1) * (t - t3)) / ((t2 - t0) * (t2 - t1) * (t2 - t3))
-        w3 = ((t - t0) * (t - t1) * (t - t2)) / ((t3 - t0) * (t3 - t1) * (t3 - t2))
-        return w0, w1, w2, w3
-
-    for y_out in range(altura):
-        for x_out in range(largura):
-            # Calcular coordenadas na imagem de entrada
-            if escala is not None:
-                x_in_f = x_out / escala
-                y_in_f = y_out / escala
-            else:  # rotação
-                x0 = x_out - cx_out
-                y0 = y_out - cy_out
-                cos_t = math.cos(angulo)
-                sin_t = math.sin(angulo)
-                x_rot = cos_t * x0 + sin_t * y0
-                y_rot = -sin_t * x0 + cos_t * y0
-                x_in_f = x_rot + cx_in
-                y_in_f = y_rot + cy_in
-
-            x0_int = int(math.floor(x_in_f))
-            y0_int = int(math.floor(y_in_f))
-            dx = x_in_f - x0_int
-            dy = y_in_f - y0_int
-
-            # Verificar se temos vizinhança 4x4 disponível
-            if (1 <= x0_int < w_in - 2) and (1 <= y0_int < h_in - 2):
-                wx = lagrange_weights(dx)
-                wy = lagrange_weights(dy)
-
-                if canais == 1:
-                    val = 0.0
-                    for j in range(4):
-                        for i in range(4):
-                            pixel_val = float(img_input[y0_int - 1 + j, x0_int - 1 + i])
-                            val += pixel_val * wx[i] * wy[j]
-                    img_out[y_out, x_out] = np.clip(val, 0, 255)
-                else:
-                    # Para cada canal
-                    for c in range(canais):
-                        val = 0.0
-                        for j in range(4):
-                            for i in range(4):
-                                pixel_val = float(img_input[y0_int - 1 + j, x0_int - 1 + i, c])
-                                val += pixel_val * wx[i] * wy[j]
-                        img_out[y_out, x_out, c] = np.clip(val, 0, 255)
-            else:
-                # Fora dos limites para Lagrange, usar bilinear como fallback
-                if (0 <= x0_int < w_in - 1) and (0 <= y0_int < h_in - 1):
-                    if canais == 1:
-                        f00 = float(img_input[y0_int, x0_int])
-                        f10 = float(img_input[y0_int, x0_int + 1])
-                        f01 = float(img_input[y0_int + 1, x0_int])
-                        f11 = float(img_input[y0_int + 1, x0_int + 1])
-                        val = (1 - dx) * (1 - dy) * f00 + dx * (1 - dy) * f10 + (1 - dx) * dy * f01 + dx * dy * f11
-                        img_out[y_out, x_out] = np.clip(val, 0, 255)
-                    else:
-                        for c in range(canais):
-                            f00 = float(img_input[y0_int, x0_int, c])
-                            f10 = float(img_input[y0_int, x0_int + 1, c])
-                            f01 = float(img_input[y0_int + 1, x0_int, c])
-                            f11 = float(img_input[y0_int + 1, x0_int + 1, c])
-                            val = (1 - dx) * (1 - dy) * f00 + dx * (1 - dy) * f10 + (1 - dx) * dy * f01 + dx * dy * f11
-                            img_out[y_out, x_out, c] = np.clip(val, 0, 255)
-                else:
-                    if canais == 1:
-                        img_out[y_out, x_out] = 0
-                    else:
-                        img_out[y_out, x_out, :] = 0
-
-    return img_out
-
-
-def aplicar_transformacao(args):
+def _r(s: float):
     """
-    De acordo com args, chama a função de interpolação correta e salva o resultado.
+    Kernel R(s) = (1/6)[P(s+2)^3 - 4P(s+1)^3 + 6P(s)^3 - 4P(s-1)^3].
+    B-spline cÃºbica.
     """
-    # 1) Carregar imagem de entrada (PNG)
-    img_input = cv2.imread(args.input, cv2.IMREAD_UNCHANGED)
-    if img_input is None:
-        print("Falha ao carregar a imagem de entrada.")
-        exit(1)
+    return (1.0 / 6.0) * (
+            _p(s + 2) ** 3
+            - 4 * _p(s + 1) ** 3
+            + 6 * _p(s) ** 3
+            - 4 * _p(s - 1) ** 3
+    )
 
-    h_in, w_in = img_input.shape[:2]
 
-    # 2) Determinar tipo de transformação e tamanho da saída
+def bicubic(img: np.ndarray, x: float, y: float):
+    h, w = img.shape
+    x0 = math.floor(x)
+    y0 = math.floor(y)
+    dx = x - x0
+    dy = y - y0
+
+    valor = 0.0
+    # varre vizinhanÃ§a 4Ã—4: m,n E {-1,0,1,2}
+    for m in range(-1, 3):
+        for n in range(-1, 3):
+            xm = x0 + m
+            yn = y0 + n
+            # clamp nos limites da imagem
+            xm = min(max(xm, 0), w - 1)
+            yn = min(max(yn, 0), h - 1)
+            w_m = _r(m - dx)
+            w_n = _r(n - dy)
+            valor += img[yn, xm] * (w_m * w_n)
+
+    return valor
+
+
+def lagrange(img: np.ndarray, x: float, y: float):
+    h, w = img.shape
+    x0 = math.floor(x)
+    y0 = math.floor(y)
+    dx = x - x0
+    dy = y - y0
+
+    def sample(xx: int, yy: int):
+        """Clampa e retorna img[yy,xx]."""
+        xx = min(max(xx, 0), w - 1)
+        yy = min(max(yy, 0), h - 1)
+        return img[yy, xx]
+
+    def _l(n: int):
+        """
+        PolinÃ´mio L(n), n=1..4, conforme slide:
+        """
+        yy = y0 + (n - 2)
+        f_m1 = sample(x0 - 1, yy)
+        f_0 = sample(x0, yy)
+        f_p1 = sample(x0 + 1, yy)
+        f_p2 = sample(x0 + 2, yy)
+        # coeficientes em x:
+        t1 = -dx * (dx - 1) * (dx - 2) / 6 * f_m1
+        t2 = (dx + 1) * (dx - 1) * (dx - 2) / 2 * f_0
+        t3 = -(dx + 1) * dx * (dx - 2) / 2 * f_p1
+        t4 = (dx + 1) * dx * (dx - 1) / 6 * f_p2
+        return t1 + t2 + t3 + t4
+
+    # coeficientes em y:
+    c1 = -dy * (dy - 1) * (dy - 2) / 6
+    c2 = (dy + 1) * (dy - 1) * (dy - 2) / 2
+    c3 = -(dy + 1) * dy * (dy - 2) / 2
+    c4 = (dy + 1) * dy * (dy - 1) / 6
+
+    return c1 * _l(1) + c2 * _l(2) + c3 * _l(3) + c4 * _l(4)
+
+
+def interpolate(img: np.ndarray, x: float, y: float, method: str = 'bilinear'):
+    h, w = img.shape
+    if x < 0 or y < 0 or x >= w or y >= h:
+        return 0.0
+    if method == 'nearest':
+        return nearest_neighbor(img, x, y)
+    elif method == 'bilinear':
+        return bilinear(img, x, y)
+    elif method == 'bicubic':
+        return bicubic(img, x, y)
+    else:
+        return lagrange(img, x, y)
+
+
+def scale_image(img: np.ndarray, scale_x: float, scale_y: float, method: str):
+    h_in, w_in = img.shape
+    h_out, w_out = int(h_in * scale_y), int(w_in * scale_x)
+    output = np.zeros((h_out, w_out), dtype=img.dtype)
+    for y_out in range(h_out):
+        for x_out in range(w_out):
+            x_in = x_out / scale_x
+            y_in = y_out / scale_y
+            output[y_out, x_out] = interpolate(img, x_in, y_in, method)
+    return output
+
+
+def rotate_image(img: np.ndarray, angle_deg: float, method: str):
+    h, w = img.shape
+    center_x, center_y = w / 2.0, h / 2.0
+    theta = math.radians(angle_deg)
+    cos_t, sin_t = math.cos(theta), math.sin(theta)
+    output = np.zeros_like(img)
+    for y_out in range(h):
+        for x_out in range(w):
+            # obtÃ©m as distÃ¢ncias ao centro
+            center_distance_x = x_out - center_x
+            center_distance_y = y_out - center_y
+            # Usando a Matriz de rotaÃ§Ã£o
+            x_rot = center_distance_x * cos_t - center_distance_y * sin_t + center_x
+            y_rot = center_distance_x * sin_t + center_distance_y * cos_t + center_y
+            output[y_out, x_out] = interpolate(img, x_rot, y_rot, method)
+    return output
+
+
+def apply_transformation(args):
+    # Carrega como grayscale
+    img = cv2.imread(args.input, cv2.IMREAD_GRAYSCALE)
+
+    h_in, w_in = img.shape
+
+    # Determina tipo e parÃ¢metros de saÃ­da
     if args.escala is not None:
-        # ESCALA
+        # Escala uniforme ou dimensÃµes fixas
         if args.dim:
-            largura_out, altura_out = args.dim[0], args.dim[1]
-            escala_calc = None  # Usar dimensões fixas
+            w_out, h_out = args.dim
+            scale_x = w_out / w_in
+            scale_y = h_out / h_in
         else:
-            escala_calc = args.escala
-            largura_out = int(w_in * escala_calc)
-            altura_out = int(h_in * escala_calc)
-
-        angulo_calc = None
-        nome_transformacao = f"escala_{args.escala}"
-
+            scale_x = scale_y = args.escala
+        result = scale_image(img, scale_x, scale_y, args.method)
+        tag = f"scale_{scale_x:.2f}x{scale_y:.2f}"
     else:
-        # ROTAÇÃO
-        theta = math.radians(args.angle)
-        if args.dim:
-            largura_out, altura_out = args.dim[0], args.dim[1]
-        else:
-            # Opção simples: manter mesmo tamanho
-            largura_out = w_in
-            altura_out = h_in
-            # Alternativa: calcular caixa delimitadora
-            # sin_t = abs(math.sin(theta))
-            # cos_t = abs(math.cos(theta))
-            # largura_out = int(h_in * sin_t + w_in * cos_t)
-            # altura_out = int(h_in * cos_t + w_in * sin_t)
+        # RotaÃ§Ã£o
+        result = rotate_image(img, args.angle, args.method)
+        tag = f"rotate_{int(args.angle)}deg"
 
-        escala_calc = None
-        angulo_calc = theta
-        nome_transformacao = f"rotacao_{args.angle}graus"
-
-    # 3) Chamar função de interpolação escolhida
-    if args.method == "nearest":
-        img_result = vizinho_mais_proximo(img_input, escala_calc, angulo_calc, largura_out, altura_out)
-    elif args.method == "bilinear":
-        img_result = interp_bilinear(img_input, escala_calc, angulo_calc, largura_out, altura_out)
-    elif args.method == "bicubic":
-        img_result = interp_bicubica(img_input, escala_calc, angulo_calc, largura_out, altura_out)
-    elif args.method == "lagrange":
-        img_result = interp_lagrange(img_input, escala_calc, angulo_calc, largura_out, altura_out)
-
-    # 4) Salvar resultado
-    nome_arquivo = f"{args.method}_{nome_transformacao}.png"
-    caminho_saida = os.path.join(args.output, nome_arquivo)
-    cv2.imwrite(caminho_saida, img_result)
-    print(f"Imagem salva em: {caminho_saida}")
+    # Prepara saÃ­da
+    os.makedirs(args.output, exist_ok=True)
+    base = os.path.splitext(os.path.basename(args.input))[0]
+    filename = f"{base}_{tag}_{args.method}.png"
+    path_out = os.path.join(args.output, filename)
+    cv2.imwrite(path_out, result)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Transformações Geométricas (Escala/Rotação).")
-    parser.add_argument("-i", "--input", required=True, help="Arquivo PNG de entrada")
-    parser.add_argument("-o", "--output", default="../output/", help="Pasta de output")
-    parser.add_argument("-m", "--method", required=True,
-                        choices=["nearest", "bilinear", "bicubic", "lagrange"],
-                        help="Método de interpolação: nearest, bilinear, bicubic, lagrange")
-    parser.add_argument("-e", "--escala", type=float, default=None,
-                        help="Fator de escala (float). Se definido, aplica só ESCALA.")
-    parser.add_argument("-a", "--angle", type=float, default=None,
-                        help="Ângulo em graus anti-horário (float). Se definido, aplica só ROTAÇÃO.")
-    parser.add_argument("-d", "--dim", nargs=2, type=int, metavar=("LARG", "ALT"),
-                        help="Dimensões da imagem de saída (largura altura). Se omitido, calcular automaticamente.")
+    parser = argparse.ArgumentParser(
+        description="TransformaÃ§Ãµes GeomÃ©tricas"
+    )
+    parser.add_argument("-i", "--input", required=True, help="PNG de entrada")
+    parser.add_argument("-o", "--output", help="Pasta de saÃ­da")
+    parser.add_argument(
+        "-m", "--method", required=True,
+        choices=["nearest", "bilinear", "bicubic", "lagrange"],
+        help="MÃ©todo de interpolaÃ§Ã£o"
+    )
+    parser.add_argument(
+        "-e", "--escala", type=float, default=None,
+        help="Fator de escala"
+    )
+    parser.add_argument(
+        "-a", "--angle", type=float, default=None,
+        help="Ã‚ngulo de rotaÃ§Ã£o"
+    )
+    parser.add_argument(
+        "-d", "--dim", nargs=2, type=int, metavar=("W", "H"),
+        help="DimensÃµes de saÃ­da"
+    )
     args = parser.parse_args()
 
-    if args.escala is None and args.angle is None:
-        print("Defina um fator de escala (-e) ou um ângulo de rotação (-a).")
-        exit(1)
-    if args.escala is not None and args.angle is not None:
-        print("Forneça apenas um: escala (-e) OU ângulo (-a).")
-        exit(1)
-
-    os.makedirs(args.output, exist_ok=True)
-    aplicar_transformacao(args)
+    apply_transformation(args)
 
 
 if __name__ == "__main__":

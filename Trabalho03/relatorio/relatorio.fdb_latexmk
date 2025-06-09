@@ -1,5 +1,5 @@
 # Fdb version 4
-["pdflatex"] 1747788101.38303 "c:/Users/Julio Vinicius/Documents/Códigos/MC920/Trabalho03/relatorio/relatorio.tex" "relatorio.pdf" "relatorio" 1747788101.93546 0
+["pdflatex"] 1747865324.59514 "c:/Users/Julio Vinicius/Documents/Códigos/MC920/Trabalho03/relatorio/relatorio.tex" "relatorio.pdf" "relatorio" 1747865325.22408 0
   "C:/Users/Julio Vinicius/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map" 1747186125 97205 3fb51b557d06aae17c4f86c5a0b69e11 ""
   "C:/Users/Julio Vinicius/AppData/Local/MiKTeX/fonts/pk/ljfour/jknappen/ec/dpi600/tcbx1000.pk" 1747706368 12124 167647b1a4b5341f6b02388f88527e53 ""
   "C:/Users/Julio Vinicius/AppData/Local/MiKTeX/miktex/data/le/pdftex/pdflatex.fmt" 1744031471 24229329 6019c5618aff1a1c413153149e5ce9e1 ""
@@ -87,10 +87,10 @@
   "C:/Users/Julio Vinicius/AppData/Local/Programs/MiKTeX/tex/latex/refcount/refcount.sty" 1576433952 9878 9e94e8fa600d95f9c7731bb21dfb67a4 ""
   "C:/Users/Julio Vinicius/AppData/Local/Programs/MiKTeX/tex/latex/rerunfilecheck/rerunfilecheck.sty" 1657800696 9714 ba3194bd52c8499b3f1e3eb91d409670 ""
   "C:/Users/Julio Vinicius/AppData/Local/Programs/MiKTeX/tex/latex/url/url.sty" 1388490452 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
-  "c:/Users/Julio Vinicius/Documents/Códigos/MC920/Trabalho03/relatorio/relatorio.tex" 1747788100 9152 4b402e6fa3ff4150b40c0f916874279c ""
-  "relatorio.aux" 1747788101 2222 ac91bd430ac018290c1a402980e74d44 "pdflatex"
-  "relatorio.out" 1747788101 2426 bbad779290bbb145e2b90d44b0623c97 "pdflatex"
-  "relatorio.tex" 1747788100 9152 4b402e6fa3ff4150b40c0f916874279c ""
+  "c:/Users/Julio Vinicius/Documents/Códigos/MC920/Trabalho03/relatorio/relatorio.tex" 1747865323 9153 ff484e360faf43a0c06af9bf2327ca37 ""
+  "relatorio.aux" 1747865325 2222 ac91bd430ac018290c1a402980e74d44 "pdflatex"
+  "relatorio.out" 1747865325 2426 bbad779290bbb145e2b90d44b0623c97 "pdflatex"
+  "relatorio.tex" 1747865323 9153 ff484e360faf43a0c06af9bf2327ca37 ""
   (generated)
   "relatorio.aux"
   "relatorio.log"

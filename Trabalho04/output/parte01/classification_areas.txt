@@ -1,0 +1,4 @@
+Quantidade de regiões: 58
+Regiões pequenas: 47
+Regiões médias: 9
+Regiões grandes: 2
